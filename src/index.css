@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: 'Fraunces', 'Playfair Display', Georgia, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  --color-cream-50: #FBF3EC;
+  --color-cream-100: #F7EDE4;
+  --color-cream-200: #E7DCD1;
+  --color-cream-300: #D8C7B7;
+  
+  --color-card: #FDFBF8;
+  
+  --color-terracotta: #E2673F;
+  --color-terracotta-hover: #CC5A35;
+  --color-terracotta-light: #FDF1EC;
+  
+  --color-charcoal: #2B2622;
+  --color-charcoal-muted: #6B6259;
+  --color-charcoal-light: #8E847A;
+
+  --color-border-hairline: #E7DCD1;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: #F7EDE4;
+    color: #2B2622;
+    scroll-behavior: smooth;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-serif);
+  }
+}
+
+/* Custom Utilities & Animations */
+.hairline-border {
+  border: 1px solid #E7DCD1;
+}
+
+.serif-italic {
+  font-family: 'Fraunces', 'Playfair Display', Georgia, serif;
+  font-style: italic;
+}
+
+/* Ambient glow effect behind hero image */
+.hero-ambient-glow {
+  background: radial-gradient(circle, rgba(226, 103, 63, 0.22) 0%, rgba(247, 237, 228, 0) 70%);
+}
+
+/* Glassmorphism surfaces */
+.glass-panel {
+  background: rgba(253, 251, 248, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(231, 220, 209, 0.8);
+}
+
+/* Custom slim scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F7EDE4;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8C7B7;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #E2673F;
+}
