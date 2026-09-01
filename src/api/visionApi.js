@@ -1,32 +1,3 @@
-// import { axiosClient } from './axiosClient';
-// import { MOCK_DETECTED_INGREDIENTS } from './mockData';
-
-// /**
-//  * Sends a hosted image URL to backend for Gemini Vision ingredient detection.
-//  * API contract: POST /api/vision/detect { imageUrl } -> { ingredients: string[] }
-//  *
-//  * @param {string} imageUrl
-//  * @returns {Promise<{ ingredients: string[] }>}
-//  */
-// export async function detectIngredients(imageUrl) {
-//   try {
-//     const response = await axiosClient.post('/vision/detect', { imageUrl });
-//     if (response && Array.isArray(response.ingredients)) {
-//       return response;
-//     }
-//   } catch (err) {
-//     console.info('Using local mock vision detection handler:', err?.message);
-//   }
-
-//   // Realistic AI Vision simulation delay (1.5 seconds)
-//   await new Promise((resolve) => setTimeout(resolve, 1500));
-
-//   // Return realistic detected ingredients set based on mock data
-//   return {
-//     ingredients: [...MOCK_DETECTED_INGREDIENTS],
-//   };
-// }
-
 import { axiosClient } from './axiosClient';
 
 /**
@@ -67,9 +38,17 @@ export async function detectIngredients(imageUrl) {
   console.log(imageUrl);
 
   try {
-    const response = await axiosClient.post('/vision/detect', {
-      imageUrl,
-    });
+    const response = await axiosClient.post(
+      '/vision/detect',
+      { imageUrl },
+      {
+        // axiosClient's default timeout (12s) is too short for Gemini
+        // Vision — especially now that the backend retries once or
+        // twice on transient 503s before giving up. 45s covers a full
+        // retry cycle with margin.
+        timeout: 45000,
+      }
+    );
 
     console.log('[Vision API] Backend response:', response);
 
