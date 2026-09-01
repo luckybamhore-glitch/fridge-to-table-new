@@ -7,15 +7,26 @@ import { usePantry } from '../../context/PantryContext';
 import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/cn';
 
+const FALLBACK_COVER_IMAGE =
+  'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=60';
+
 export function RecipeCard({ recipe, index = 0 }) {
   const navigate = useNavigate();
   const { savedRecipeIds, toggleSavedRecipe } = usePantry();
   const { addToast } = useToast();
 
-  const isSaved = savedRecipeIds.includes(recipe.id);
+  // The backend looks recipes up by `recipeId` (see getRecipeByIdController),
+  // not the Mongo `_id` / Mongoose's default `id` virtual. Gemini-generated
+  // recipes never have an `id` field at all — only `recipeId`. Standardizing
+  // on `recipeId` here (with `id` as a legacy fallback) keeps navigation,
+  // favoriting and the React key correct for every recipe source.
+  const recipeIdentifier = recipe?.recipeId || recipe?.id;
 
-  const haveCount = recipe.ingredients.filter((i) => i.have).length;
-  const totalCount = recipe.ingredients.length;
+  const isSaved = savedRecipeIds.includes(recipeIdentifier);
+
+  const ingredients = Array.isArray(recipe?.ingredients) ? recipe.ingredients : [];
+  const haveCount = ingredients.filter((i) => i?.have).length;
+  const totalCount = ingredients.length;
 
   const cardVariants = {
     hidden: { opacity: 0, y: 30 },
@@ -32,11 +43,24 @@ export function RecipeCard({ recipe, index = 0 }) {
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
-    toggleSavedRecipe(recipe.id);
+    toggleSavedRecipe(recipeIdentifier);
     addToast(
-      isSaved ? `Removed "${recipe.title}" from saved recipes` : `Saved "${recipe.title}" to favorites!`,
+      isSaved ? `Removed "${recipe?.title || 'recipe'}" from saved recipes` : `Saved "${recipe?.title || 'recipe'}" to favorites!`,
       isSaved ? 'info' : 'success'
     );
+  };
+
+  const handleCardClick = () => {
+    if (!recipeIdentifier) {
+      addToast('This recipe is missing an ID and cannot be opened.', 'error');
+      return;
+    }
+    // Pass the already-fetched recipe object along via router state.
+    // AI-generated recipes are never persisted to the database, so
+    // RecipeDetailPage re-fetching by ID would always 404 for them —
+    // this lets it use the data we already have instead, falling back
+    // to a real fetch only for direct/bookmarked links.
+    navigate(`/recipe/${recipeIdentifier}`, { state: { recipe } });
   };
 
   return (
@@ -46,21 +70,28 @@ export function RecipeCard({ recipe, index = 0 }) {
       animate="visible"
       variants={cardVariants}
       whileHover={{ y: -6, transition: { duration: 0.2 } }}
-      onClick={() => navigate(`/recipe/${recipe.id}`)}
+      onClick={handleCardClick}
       className="group cursor-pointer flex flex-col rounded-3xl bg-[#FDFBF8] overflow-hidden hairline-border border-[#E7DCD1] shadow-sm hover:shadow-xl transition-all duration-300 relative"
     >
       {/* Cover Image Container */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-orange-100">
         <img
-          src={recipe.coverImageUrl}
-          alt={recipe.title}
+          src={recipe?.coverImageUrl || FALLBACK_COVER_IMAGE}
+          alt={recipe?.title || 'Recipe'}
           loading="lazy"
           className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+          onError={(e) => {
+            // If a Cloudinary/AI-supplied URL 404s, fall back instead of
+            // showing a broken image icon.
+            if (e.currentTarget.src !== FALLBACK_COVER_IMAGE) {
+              e.currentTarget.src = FALLBACK_COVER_IMAGE;
+            }
+          }}
         />
 
         {/* Top Badges Overlay */}
         <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none">
-          <MatchBadge percent={recipe.matchPercent} />
+          <MatchBadge percent={recipe?.matchPercent || 0} />
           <button
             type="button"
             onClick={handleFavoriteClick}
@@ -85,7 +116,7 @@ export function RecipeCard({ recipe, index = 0 }) {
         <div>
           {/* Diet tags */}
           <div className="flex flex-wrap gap-1.5 mb-2.5">
-            {recipe.diet?.map((d) => (
+            {(Array.isArray(recipe?.diet) ? recipe.diet : []).map((d) => (
               <Badge key={d} variant="diet" className="text-[10px] py-0.5 px-2.5">
                 {d}
               </Badge>
@@ -94,11 +125,11 @@ export function RecipeCard({ recipe, index = 0 }) {
 
           {/* Title */}
           <h3 className="text-xl font-serif text-[#2B2622] group-hover:text-[#E2673F] transition-colors leading-snug line-clamp-2">
-            {recipe.title}
+            {recipe?.title || 'Untitled recipe'}
           </h3>
 
           {/* Subtitle */}
-          {recipe.subtitle && (
+          {recipe?.subtitle && (
             <p className="text-xs text-[#6B6259] mt-1.5 line-clamp-2 leading-relaxed">
               {recipe.subtitle}
             </p>
@@ -111,11 +142,11 @@ export function RecipeCard({ recipe, index = 0 }) {
             <div className="flex items-center gap-4">
               <span className="inline-flex items-center gap-1.5 font-medium">
                 <Clock className="w-3.5 h-3.5 text-[#E2673F]" />
-                {recipe.timeMinutes} mins
+                {recipe?.timeMinutes ?? '—'} mins
               </span>
               <span className="inline-flex items-center gap-1.5 font-medium">
                 <Users className="w-3.5 h-3.5 text-[#E2673F]" />
-                {recipe.servings} servings
+                {recipe?.servings ?? '—'} servings
               </span>
             </div>
             <span className="text-[#E2673F] font-semibold group-hover:translate-x-1 transition-transform inline-flex items-center gap-0.5">

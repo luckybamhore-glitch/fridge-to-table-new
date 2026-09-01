@@ -38,7 +38,11 @@ export function RecipeGrid({ recipes = [], isLoading = false, onRetry }) {
   return (
     <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
       {recipes.map((recipe, index) => (
-        <RecipeCard key={recipe.id} recipe={recipe} index={index} />
+        <RecipeCard
+          key={recipe?.recipeId || recipe?.id || index}
+          recipe={recipe}
+          index={index}
+        />
       ))}
     </motion.div>
   );

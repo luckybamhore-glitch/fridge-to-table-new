@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Clock,
@@ -23,11 +23,23 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { usePantry } from '../context/PantryContext';
 import { useToast } from '../context/ToastContext';
 
+const FALLBACK_COVER_IMAGE =
+  'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=60';
+
 export function RecipeDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [recipe, setRecipe] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const location = useLocation();
+
+  // If we arrived by clicking a RecipeCard, the full recipe object is
+  // already sitting in navigation state — AI-generated recipes are never
+  // persisted to the database, so re-fetching by ID would 404 for them.
+  // Only fall back to an API fetch when there's nothing in state (e.g. a
+  // bookmarked/shared link, or a direct page reload).
+  const recipeFromState = location.state?.recipe || null;
+
+  const [recipe, setRecipe] = useState(recipeFromState);
+  const [isLoading, setIsLoading] = useState(!recipeFromState);
   const [checkedIngredients, setCheckedIngredients] = useState({});
   const [completedSteps, setCompletedSteps] = useState({});
 
@@ -35,11 +47,15 @@ export function RecipeDetailPage() {
   const { addToast } = useToast();
 
   useEffect(() => {
+    if (recipeFromState) {
+      return; // already have everything we need
+    }
+
     async function loadRecipe() {
       setIsLoading(true);
       try {
         const data = await getRecipeById(id);
-        setRecipe(data);
+        setRecipe(data?.recipe || data);
       } catch (err) {
         console.error(err);
         addToast('Recipe not found', 'error');
@@ -48,6 +64,7 @@ export function RecipeDetailPage() {
       }
     }
     loadRecipe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (isLoading) {
@@ -74,7 +91,13 @@ export function RecipeDetailPage() {
     );
   }
 
-  const isSaved = savedRecipeIds.includes(recipe.id);
+  // Same identifier rule as RecipeCard: prefer recipeId (what the backend
+  // actually keys on), fall back to id for anything still using the old field.
+  const recipeIdentifier = recipe.recipeId || recipe.id;
+  const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  const steps = Array.isArray(recipe.steps) ? recipe.steps : [];
+
+  const isSaved = savedRecipeIds.includes(recipeIdentifier);
 
   const toggleIngredientCheck = (index) => {
     setCheckedIngredients((prev) => ({
@@ -98,15 +121,15 @@ export function RecipeDetailPage() {
   };
 
   const handleFavoriteClick = () => {
-    toggleSavedRecipe(recipe.id);
+    toggleSavedRecipe(recipeIdentifier);
     addToast(
       isSaved ? `Removed "${recipe.title}" from favorites` : `Saved "${recipe.title}" to favorites!`,
       isSaved ? 'info' : 'success'
     );
   };
 
-  const haveIngredients = recipe.ingredients.filter((ing) => ing.have);
-  const needIngredients = recipe.ingredients.filter((ing) => !ing.have);
+  const haveIngredients = ingredients.filter((ing) => ing?.have);
+  const needIngredients = ingredients.filter((ing) => !ing?.have);
 
   return (
     <motion.article
@@ -143,21 +166,26 @@ export function RecipeDetailPage() {
       {/* Hero Cover Image Section */}
       <div className="relative rounded-3xl overflow-hidden shadow-2xl hairline-border border-[#E7DCD1] aspect-[16/9] sm:aspect-[21/9] bg-orange-100">
         <img
-          src={recipe.coverImageUrl}
-          alt={recipe.title}
+          src={recipe.coverImageUrl || FALLBACK_COVER_IMAGE}
+          alt={recipe.title || 'Recipe'}
           className="w-full h-full object-cover"
+          onError={(e) => {
+            if (e.currentTarget.src !== FALLBACK_COVER_IMAGE) {
+              e.currentTarget.src = FALLBACK_COVER_IMAGE;
+            }
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
 
         {/* Floating Match Badge Top Left */}
         <div className="absolute top-6 left-6">
-          <MatchBadge percent={recipe.matchPercent} />
+          <MatchBadge percent={recipe.matchPercent || 0} />
         </div>
 
         {/* Overlay Title & Meta */}
         <div className="absolute bottom-6 left-6 right-6 text-white space-y-3">
           <div className="flex flex-wrap gap-2">
-            {recipe.diet?.map((d) => (
+            {(Array.isArray(recipe.diet) ? recipe.diet : []).map((d) => (
               <span
                 key={d}
                 className="px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-white text-xs font-semibold uppercase tracking-wider"
@@ -168,18 +196,18 @@ export function RecipeDetailPage() {
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-normal text-white drop-shadow-md">
-            {recipe.title}
+            {recipe.title || 'Untitled recipe'}
           </h1>
 
           <div className="flex flex-wrap items-center gap-6 text-xs sm:text-sm text-white/90 font-medium">
             <span className="inline-flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-amber-400" /> {recipe.timeMinutes} mins prep & cook
+              <Clock className="w-4 h-4 text-amber-400" /> {recipe.timeMinutes ?? '—'} mins prep & cook
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <Users className="w-4 h-4 text-amber-400" /> {recipe.servings} servings
+              <Users className="w-4 h-4 text-amber-400" /> {recipe.servings ?? '—'} servings
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <ChefHat className="w-4 h-4 text-amber-400" /> {recipe.difficulty} difficulty
+              <ChefHat className="w-4 h-4 text-amber-400" /> {recipe.difficulty || 'Easy'} difficulty
             </span>
           </div>
         </div>
@@ -203,7 +231,7 @@ export function RecipeDetailPage() {
                 <h3 className="text-xl font-serif text-[#2B2622]">Ingredients</h3>
               </div>
               <span className="text-xs text-[#8E847A]">
-                {recipe.ingredients.length} total
+                {ingredients.length} total
               </span>
             </div>
 
@@ -213,8 +241,8 @@ export function RecipeDetailPage() {
                 <CheckCircle2 className="w-3.5 h-3.5" /> IN YOUR FRIDGE ({haveIngredients.length})
               </span>
               <ul className="space-y-2">
-                {haveIngredients.map((ing, idx) => {
-                  const globalIdx = recipe.ingredients.indexOf(ing);
+                {haveIngredients.map((ing) => {
+                  const globalIdx = ingredients.indexOf(ing);
                   const isChecked = checkedIngredients[globalIdx];
                   return (
                     <li
@@ -250,7 +278,7 @@ export function RecipeDetailPage() {
                 </span>
                 <ul className="space-y-2">
                   {needIngredients.map((ing) => {
-                    const globalIdx = recipe.ingredients.indexOf(ing);
+                    const globalIdx = ingredients.indexOf(ing);
                     const isChecked = checkedIngredients[globalIdx];
                     return (
                       <li
@@ -312,12 +340,12 @@ export function RecipeDetailPage() {
               <h3 className="text-xl font-serif text-[#2B2622]">Step-by-Step Instructions</h3>
               <span className="text-xs text-[#8E847A]">
                 {Object.keys(completedSteps).filter((k) => completedSteps[k]).length} of{' '}
-                {recipe.steps.length} completed
+                {steps.length} completed
               </span>
             </div>
 
             <div className="space-y-6">
-              {recipe.steps.map((stepText, idx) => {
+              {steps.map((stepText, idx) => {
                 const isDone = completedSteps[idx];
                 return (
                   <div

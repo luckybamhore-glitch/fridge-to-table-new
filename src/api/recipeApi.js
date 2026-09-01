@@ -1,89 +1,47 @@
 import { axiosClient } from './axiosClient';
-import { MOCK_RECIPES } from './mockData';
 
 /**
  * Generates recipe recommendations based on input ingredients and optional diet filter.
  * API contract: POST /api/recipes/generate { ingredients: string[], diet?: string } -> { recipes: Recipe[] }
  *
+ * No client-side mock fallback here — the backend already has its own
+ * fallback to real MongoDB recipes (see recipeController.js's
+ * `source: 'database'` path) if Gemini is unavailable. A second,
+ * separate mock layer on the client just duplicates that logic and is
+ * one more place for bugs to hide (as the now-empty mockData.js proved).
+ * Failures are thrown so the caller (RecipeResultsPage) can show a real
+ * error instead of silently swapping in fake data.
+ *
  * @param {Object} params
  * @param {string[]} params.ingredients
  * @param {string} [params.diet]
- * @returns {Promise<{ recipes: Array }>}
+ * @returns {Promise<{ recipes: Array, source: string, ingredients: string[] }>}
  */
 export async function generateRecipes({ ingredients = [], diet }) {
-  try {
-    const response = await axiosClient.post('/recipes/generate', { ingredients, diet });
-    if (response && Array.isArray(response.recipes)) {
-      return response;
-    }
-  } catch (err) {
-    console.info('Using local mock recipe generation handler:', err?.message);
+  const response = await axiosClient.post('/recipes/generate', { ingredients, diet });
+
+  if (!response || !Array.isArray(response.recipes)) {
+    throw new Error('Backend returned an invalid recipe response.');
   }
 
-  // Simulate network & AI processing delay (1.2 seconds)
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-
-  const lowerInputs = ingredients.map((i) => i.toLowerCase().trim());
-
-  // Dynamic match percentage & ingredient status mapping for demo realism
-  const processedRecipes = MOCK_RECIPES.map((recipe) => {
-    const updatedIngredients = recipe.ingredients.map((ing) => {
-      const ingLower = ing.name.toLowerCase();
-      const hasMatch = lowerInputs.some(
-        (userIng) => ingLower.includes(userIng) || userIng.includes(ingLower)
-      );
-      return {
-        ...ing,
-        have: hasMatch || ing.have,
-      };
-    });
-
-    const haveCount = updatedIngredients.filter((ing) => ing.have).length;
-    const matchPercent = Math.min(
-      98,
-      Math.max(65, Math.round((haveCount / updatedIngredients.length) * 100))
-    );
-
-    return {
-      ...recipe,
-      ingredients: updatedIngredients,
-      matchPercent,
-    };
-  });
-
-  // Filter by diet if specified
-  let filtered = processedRecipes;
-  if (diet && diet !== 'All') {
-    filtered = processedRecipes.filter(
-      (r) => r.diet.map((d) => d.toLowerCase()).includes(diet.toLowerCase())
-    );
-    if (filtered.length === 0) filtered = processedRecipes; // Fallback so user gets results
-  }
-
-  // Sort by match percentage descending
-  filtered.sort((a, b) => b.matchPercent - a.matchPercent);
-
-  return { recipes: filtered };
+  return response;
 }
 
 /**
  * Fetches single recipe details by ID.
- * API contract: GET /api/recipes/:id -> Recipe
+ * API contract: GET /api/recipes/:id -> { recipe: Recipe }
  *
  * @param {string} id
- * @returns {Promise<Object>}
+ * @returns {Promise<Object>} the recipe object
  */
 export async function getRecipeById(id) {
-  try {
-    const response = await axiosClient.get(`/recipes/${id}`);
-    if (response && response.id) {
-      return response;
-    }
-  } catch (err) {
-    console.info('Using local mock recipe fetch handler:', err?.message);
+  const response = await axiosClient.get(`/recipes/${id}`);
+
+  // axiosClient already unwraps to `.data` — the backend's shape is
+  // { recipe: {...} }, not the recipe's fields directly at the top level.
+  if (!response || !response.recipe) {
+    throw new Error('Recipe not found.');
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const found = MOCK_RECIPES.find((r) => r.id === id) || MOCK_RECIPES[0];
-  return found;
+  return response.recipe;
 }
