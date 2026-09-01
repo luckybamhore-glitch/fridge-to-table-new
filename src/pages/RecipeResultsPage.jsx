@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkles, SlidersHorizontal, ArrowLeft, RefreshCw, Search, Utensils } from 'lucide-react';
@@ -21,23 +21,40 @@ export function RecipeResultsPage() {
   const [sortBy, setSortBy] = useState('match'); // 'match' | 'time'
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchResults = async () => {
+  // Tracks which ingredients + diet the current `activeResults` cache was
+  // generated for. If the pantry changes (e.g. a fresh photo scan) after
+  // a previous visit already cached results, this lets us tell the cache
+  // is stale and re-fetch — instead of silently showing old recipes for
+  // a completely different set of ingredients.
+  const lastFetchedSignatureRef = useRef(null);
+
+  const buildSignature = (ingredientList, diet) =>
+    `${diet}::${[...ingredientList].map((i) => i.toLowerCase()).sort().join('|')}`;
+
+  const fetchResults = async (dietOverride) => {
     if (ingredients.length === 0) {
       navigate('/cook');
       return;
     }
 
+    const dietToUse = dietOverride ?? dietFilter;
+
     setIsLoading(true);
     try {
       const response = await generateRecipes({
         ingredients,
-        diet: dietFilter,
+        diet: dietToUse,
       });
 
       setIsLoading(false);
-      if (response && response.recipes) {
+
+      if (response && Array.isArray(response.recipes)) {
+        lastFetchedSignatureRef.current = buildSignature(ingredients, dietToUse);
         setRecipes(response.recipes);
         setActiveResults(response.recipes);
+      } else {
+        setRecipes([]);
+        setActiveResults([]);
       }
     } catch (err) {
       console.error(err);
@@ -47,30 +64,48 @@ export function RecipeResultsPage() {
   };
 
   useEffect(() => {
-    if (!activeResults || activeResults.length === 0) {
+    const currentSignature = buildSignature(ingredients, dietFilter);
+    const cacheIsFresh =
+      activeResults && activeResults.length > 0 && lastFetchedSignatureRef.current === currentSignature;
+
+    if (!cacheIsFresh) {
       fetchResults();
     }
-  }, []);
+    // Only re-run when the actual ingredients/diet change, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ingredients, dietFilter]);
 
-  // Filter and sort recipes
-  const filteredRecipes = recipes
-    .filter((recipe) => {
-      // Search query filter
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const titleMatch = recipe.title.toLowerCase().includes(query);
-        const ingredientMatch = recipe.ingredients.some((i) =>
-          i.name.toLowerCase().includes(query)
-        );
-        return titleMatch || ingredientMatch;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'match') return b.matchPercent - a.matchPercent;
-      if (sortBy === 'time') return a.timeMinutes - b.timeMinutes;
-      return 0;
-    });
+  // Filter and sort recipes. Wrapped defensively — a single malformed
+  // recipe (missing title/ingredients) should never be able to crash the
+  // whole page with no error boundary to catch it.
+  let filteredRecipes = [];
+  try {
+    filteredRecipes = recipes
+      .filter((recipe) => {
+        if (!recipe) return false;
+
+        if (searchQuery.trim()) {
+          const query = searchQuery.toLowerCase();
+          const title = recipe.title || '';
+          const recipeIngredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+
+          const titleMatch = title.toLowerCase().includes(query);
+          const ingredientMatch = recipeIngredients.some((i) =>
+            String(i?.name || '').toLowerCase().includes(query)
+          );
+          return titleMatch || ingredientMatch;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'match') return (b?.matchPercent || 0) - (a?.matchPercent || 0);
+        if (sortBy === 'time') return (a?.timeMinutes || 0) - (b?.timeMinutes || 0);
+        return 0;
+      });
+  } catch (err) {
+    console.error('[RecipeResultsPage] Failed to filter/sort recipes:', err);
+    filteredRecipes = [];
+  }
 
   return (
     <motion.div
@@ -140,8 +175,13 @@ export function RecipeResultsPage() {
             <select
               value={dietFilter}
               onChange={(e) => {
-                setDietFilter(e.target.value);
-                fetchResults();
+                const newDiet = e.target.value;
+                setDietFilter(newDiet);
+                // Pass the new value directly — setDietFilter's update
+                // won't be visible in this closure's `dietFilter` until
+                // the next render, so relying on state here would fetch
+                // with the OLD diet.
+                fetchResults(newDiet);
               }}
               className="px-3 py-1.5 rounded-full bg-white text-xs font-medium text-[#2B2622] hairline-border border-[#E7DCD1]"
             >
@@ -166,7 +206,7 @@ export function RecipeResultsPage() {
             </select>
           </div>
 
-          <Button variant="ghost" size="sm" icon={RefreshCw} onClick={fetchResults}>
+          <Button variant="ghost" size="sm" icon={RefreshCw} onClick={() => fetchResults()}>
             Refresh
           </Button>
         </div>
@@ -176,7 +216,7 @@ export function RecipeResultsPage() {
       <RecipeGrid
         recipes={filteredRecipes}
         isLoading={isLoading}
-        onRetry={fetchResults}
+        onRetry={() => fetchResults()}
       />
     </motion.div>
   );

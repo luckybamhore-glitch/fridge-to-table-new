@@ -1,3 +1,4 @@
+// 
 import { User } from '../models/User.js';
 import {
   generateAccessToken,
@@ -106,24 +107,51 @@ export async function refresh(req, res, next) {
       return res.status(401).json({ message: 'Refresh token invalid or expired. Please log in again.' });
     }
 
-    const user = await User.findById(decoded.sub).select('+refreshTokens');
     const incomingHash = hashToken(token);
+    const newRefreshToken = generateRefreshToken(decoded.sub);
+    const newHash = hashToken(newRefreshToken);
 
-    if (!user || !user.refreshTokens.includes(incomingHash)) {
+    // Atomic rotate: pull the used token and push the new one in a single
+    // database operation (an aggregation-pipeline update), keyed on the
+    // token actually being present on the document right now.
+    //
+    // We deliberately do NOT fetch the user, mutate the array in memory,
+    // then call .save() — that read-modify-write pattern races under
+    // Mongoose's optimistic-concurrency (__v) check whenever two refresh
+    // calls land close together (e.g. the same account open in two
+    // browser tabs, both holding the same refresh-token cookie). The
+    // first .save() succeeds, the second throws VersionError. Doing the
+    // whole rotation as one atomic findOneAndUpdate removes the race
+    // entirely — there's no in-memory version to go stale.
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: decoded.sub, refreshTokens: incomingHash },
+      [
+        {
+          $set: {
+            refreshTokens: {
+              $slice: [
+                {
+                  $concatArrays: [
+                    { $filter: { input: '$refreshTokens', cond: { $ne: ['$$this', incomingHash] } } },
+                    [newHash],
+                  ],
+                },
+                -MAX_ACTIVE_SESSIONS,
+              ],
+            },
+          },
+        },
+      ],
+      { new: true }
+    );
+
+    if (!updatedUser) {
       // Token not recognized — either already rotated/revoked, or reused (replay attack).
       // Fail closed: force a fresh login rather than silently issuing a new token.
       return res.status(401).json({ message: 'Refresh token revoked. Please log in again.' });
     }
 
-    // Rotate: invalidate the used token, issue a new one in its place.
-    const newRefreshToken = generateRefreshToken(user._id);
-    user.refreshTokens = user.refreshTokens
-      .filter((t) => t !== incomingHash)
-      .concat(hashToken(newRefreshToken))
-      .slice(-MAX_ACTIVE_SESSIONS);
-    await user.save();
-
-    const newAccessToken = generateAccessToken(user._id);
+    const newAccessToken = generateAccessToken(decoded.sub);
     setRefreshCookie(res, newRefreshToken);
     return res.status(200).json({ accessToken: newAccessToken });
   } catch (err) {
@@ -142,12 +170,9 @@ export async function logout(req, res, next) {
     if (token) {
       try {
         const decoded = verifyRefreshToken(token);
-        const user = await User.findById(decoded.sub).select('+refreshTokens');
-        if (user) {
-          const incomingHash = hashToken(token);
-          user.refreshTokens = user.refreshTokens.filter((t) => t !== incomingHash);
-          await user.save();
-        }
+        const incomingHash = hashToken(token);
+        // Atomic $pull — same rationale as refresh() above: no read-modify-write race.
+        await User.findByIdAndUpdate(decoded.sub, { $pull: { refreshTokens: incomingHash } });
       } catch {
         // Token already invalid/expired — nothing to revoke, just clear the cookie below.
       }
