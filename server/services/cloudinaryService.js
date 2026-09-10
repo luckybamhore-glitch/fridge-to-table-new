@@ -220,9 +220,14 @@ function ensureConfigured() {
  * preset needed, no secret ever reaches the browser).
  *
  * @param {string} base64DataUri
+ * @param {string} [folder] - defaults to the original pantry-scan
+ *   folder so existing callers are unaffected.
  * @returns {Promise<{ url: string, publicId: string }>}
  */
-export async function uploadImageFromBase64(base64DataUri) {
+export async function uploadImageFromBase64(
+  base64DataUri,
+  folder = 'fridge-to-table/pantry-scans'
+) {
   if (!base64DataUri || typeof base64DataUri !== 'string') {
     throw new Error('A base64 image data URI is required.');
   }
@@ -235,7 +240,7 @@ export async function uploadImageFromBase64(base64DataUri) {
 
   try {
     const result = await cloudinary.uploader.upload(base64DataUri, {
-      folder: 'fridge-to-table/pantry-scans',
+      folder,
       resource_type: 'image',
       // Cloudinary rejects anything that isn't actually an image, even
       // if the client-side MIME check was somehow bypassed.

@@ -18,7 +18,18 @@ import { axiosClient } from './axiosClient';
  * @returns {Promise<{ recipes: Array, source: string, ingredients: string[] }>}
  */
 export async function generateRecipes({ ingredients = [], diet }) {
-  const response = await axiosClient.post('/recipes/generate', { ingredients, diet });
+  // This endpoint chains a Gemini recipe-generation call, a YouTube
+  // lookup per recipe, and callGeminiWithRetry's own retry/backoff —
+  // the client's default 12s timeout (axiosClient.js) is tuned for
+  // ordinary CRUD calls and is routinely too short here, which was
+  // surfacing as "timeout of 12000ms exceeded" even on successful,
+  // just-slow generations. Override it for this call specifically
+  // rather than loosening the timeout for every request in the app.
+  const response = await axiosClient.post(
+    '/recipes/generate',
+    { ingredients, diet },
+    { timeout: 30000 }
+  );
 
   if (!response || !Array.isArray(response.recipes)) {
     throw new Error('Backend returned an invalid recipe response.');

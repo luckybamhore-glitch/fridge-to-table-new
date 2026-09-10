@@ -564,6 +564,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { fetchImageAsBase64 } from './cloudinaryService.js';
+import { uploadImageFromBase64 } from './cloudinaryService.js';
 import { attachYoutubeLinks } from './youtubeService.js';
 
 const GEMINI_MODEL = 'gemini-3.6-flash';
@@ -659,6 +660,21 @@ function parseJson(text) {
     console.error('[Gemini] Invalid JSON:', cleaned);
     throw new Error('Gemini returned invalid JSON.');
   }
+}
+
+/**
+ * Vision models will occasionally slip non-ingredient text into the
+ * array — a caption, a URL, a "Recipe: ..." label read off the photo —
+ * despite explicit prompt instructions not to. Prompting alone isn't
+ * enforcement, so we filter defensively on our end before this list
+ * ever reaches recipe generation or the UI.
+ */
+function isPlausibleIngredientName(name) {
+  if (name.length > 40) return false; // real ingredient names are short
+  if (/https?:\/\/|www\./i.test(name)) return false; // URLs
+  if (/^(recipe|youtube|link|video|source)\s*:/i.test(name)) return false; // labels
+  if (/[{}<>]/.test(name)) return false; // stray markup
+  return true;
 }
 
 /**
@@ -769,7 +785,12 @@ Example:
     }
 
     const ingredients = [
-      ...new Set(parsed.map((item) => String(item).trim()).filter(Boolean)),
+      ...new Set(
+        parsed
+          .map((item) => String(item).trim())
+          .filter(Boolean)
+          .filter(isPlausibleIngredientName)
+      ),
     ];
 
     console.log('[Gemini Vision] Detected ingredients:', ingredients);
@@ -785,6 +806,63 @@ Example:
     }
 
     throw new Error('Could not analyze the photo. Please try a clearer image.');
+  }
+}
+
+// Fast/cheap tier of Gemini's image model — good enough for food photos,
+// and this runs twice (once per recipe) on every generation request, so
+// keeping it on the flash tier matters for both latency and cost. Swap
+// to 'gemini-3-pro-image' if quality ever needs to outweigh that.
+const RECIPE_IMAGE_MODEL = 'gemini-2.5-flash-image';
+
+/**
+ * Generates a real, recipe-specific food photo with Gemini's image
+ * model, then re-hosts it on Cloudinary so the rest of the app gets
+ * back a normal, permanent HTTPS URL — exactly what it already expects
+ * for coverImageUrl (same shape as the seeded DB recipes' images).
+ *
+ * Returns '' on any failure (missing key, model error, upload error)
+ * rather than throwing, so one bad image never breaks the whole
+ * recipe response — the frontend's FALLBACK_COVER_IMAGE already
+ * handles an empty coverImageUrl.
+ */
+async function generateRecipeCoverImage(recipe) {
+  try {
+    const ai = getGeminiClient();
+
+    const prompt = `A professional food-magazine photograph of this dish: "${recipe.title}". ${recipe.subtitle || ''}
+Overhead or 45-degree angle, on a simple plate or bowl, natural daylight, shallow depth of field, restaurant-quality plating and styling.
+Photorealistic. No text, no watermark, no logos, no people, no hands, no utensils mid-motion.`;
+
+    const response = await callGeminiWithRetry(
+      () =>
+        ai.models.generateContent({
+          model: RECIPE_IMAGE_MODEL,
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        }),
+      `Recipe image (${recipe.title})`
+    );
+
+    const parts = response?.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find((part) => part.inlineData?.data);
+
+    if (!imagePart) {
+      console.warn(`[Gemini Image] No image data returned for "${recipe.title}".`);
+      return '';
+    }
+
+    const mimeType = imagePart.inlineData.mimeType || 'image/png';
+    const dataUri = `data:${mimeType};base64,${imagePart.inlineData.data}`;
+
+    const { url } = await uploadImageFromBase64(dataUri, 'fridge-to-table/recipe-covers');
+
+    return url;
+  } catch (error) {
+    console.error(
+      `[Gemini Image] Failed to generate image for "${recipe.title}":`,
+      error.message
+    );
+    return '';
   }
 }
 
@@ -932,12 +1010,57 @@ Return exactly this JSON structure:
       tips: recipe.tips || '',
     }));
 
-    // Look up a real, verified YouTube video per recipe (parallel).
-    const recipesWithVideos = await attachYoutubeLinks(recipes);
+    // Recompute `have` and matchPercent ourselves instead of trusting
+    // the model's self-reported values. LLMs are unreliable graders of
+    // their own output — especially when given a noisy ingredient list —
+    // and there was previously nothing here catching a recipe that
+    // claims "100% match" while actually using ingredients the user
+    // never listed. The model's ingredient *names* and *steps* stay
+    // authoritative; only the numbers that drive the match badge are
+    // re-derived from the real input list.
+    const normalizedUserIngredients = cleanedIngredients.map((item) =>
+      item.toLowerCase()
+    );
 
-    console.log(`[Gemini Recipe Generator] Generated ${recipesWithVideos.length} recipes.`);
+    const verifiedRecipes = recipes.map((recipe) => {
+      const verifiedIngredients = recipe.ingredients.map((ingredient) => {
+        const name = ingredient.name.toLowerCase();
+        const isMatch = normalizedUserIngredients.some(
+          (userIngredient) =>
+            name.includes(userIngredient) || userIngredient.includes(name)
+        );
+        return { ...ingredient, have: isMatch };
+      });
 
-    return recipesWithVideos;
+      const haveCount = verifiedIngredients.filter((i) => i.have).length;
+      const totalCount = verifiedIngredients.length || 1;
+
+      return {
+        ...recipe,
+        ingredients: verifiedIngredients,
+        matchPercent: Math.round((haveCount / totalCount) * 100),
+      };
+    });
+
+    // Look up a real, verified YouTube video AND generate a real,
+    // recipe-specific cover photo per recipe — run together since
+    // neither depends on the other, so we only pay the slower of the
+    // two in wall-clock time instead of both back-to-back.
+    const [recipesWithVideos, generatedImageUrls] = await Promise.all([
+      attachYoutubeLinks(verifiedRecipes),
+      Promise.all(verifiedRecipes.map((recipe) => generateRecipeCoverImage(recipe))),
+    ]);
+
+    const recipesWithImages = recipesWithVideos.map((recipe, index) => ({
+      ...recipe,
+      // Fall back to whatever Gemini's text call returned (normally '')
+      // rather than forcing an empty string, in case that ever changes.
+      coverImageUrl: generatedImageUrls[index] || recipe.coverImageUrl || '',
+    }));
+
+    console.log(`[Gemini Recipe Generator] Generated ${recipesWithImages.length} recipes.`);
+
+    return recipesWithImages;
   } catch (error) {
     console.error('[Gemini Recipe Generator] Error:', error.message);
     return [];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkles, SlidersHorizontal, ArrowLeft, RefreshCw, Search, Utensils } from 'lucide-react';
 import { SectionEyebrow } from '../components/ui/SectionEyebrow';
@@ -13,8 +13,22 @@ import { useToast } from '../context/ToastContext';
 
 export function RecipeResultsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { ingredients, dietFilter, setDietFilter, activeResults, setActiveResults } = usePantry();
   const { addToast } = useToast();
+
+  // A photo scan navigates here with `scanIngredients` in router state —
+  // just what was detected in that photo, not the whole pantry. When
+  // present, it takes priority so a fresh scan's results reflect only
+  // that photo instead of being diluted by everything else saved in the
+  // pantry from past sessions. Any other entry point (editing the full
+  // cutting board, refreshing, a diet filter change) has no router state
+  // and falls back to the full pantry as before.
+  const scanIngredients = location.state?.scanIngredients;
+  const activeIngredients =
+    Array.isArray(scanIngredients) && scanIngredients.length > 0
+      ? scanIngredients
+      : ingredients;
 
   const [recipes, setRecipes] = useState(activeResults || []);
   const [isLoading, setIsLoading] = useState(!activeResults);
@@ -32,7 +46,7 @@ export function RecipeResultsPage() {
     `${diet}::${[...ingredientList].map((i) => i.toLowerCase()).sort().join('|')}`;
 
   const fetchResults = async (dietOverride) => {
-    if (ingredients.length === 0) {
+    if (activeIngredients.length === 0) {
       navigate('/cook');
       return;
     }
@@ -42,14 +56,14 @@ export function RecipeResultsPage() {
     setIsLoading(true);
     try {
       const response = await generateRecipes({
-        ingredients,
+        ingredients: activeIngredients,
         diet: dietToUse,
       });
 
       setIsLoading(false);
 
       if (response && Array.isArray(response.recipes)) {
-        lastFetchedSignatureRef.current = buildSignature(ingredients, dietToUse);
+        lastFetchedSignatureRef.current = buildSignature(activeIngredients, dietToUse);
         setRecipes(response.recipes);
         setActiveResults(response.recipes);
       } else {
@@ -64,7 +78,7 @@ export function RecipeResultsPage() {
   };
 
   useEffect(() => {
-    const currentSignature = buildSignature(ingredients, dietFilter);
+    const currentSignature = buildSignature(activeIngredients, dietFilter);
     const cacheIsFresh =
       activeResults && activeResults.length > 0 && lastFetchedSignatureRef.current === currentSignature;
 
@@ -73,7 +87,7 @@ export function RecipeResultsPage() {
     }
     // Only re-run when the actual ingredients/diet change, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ingredients, dietFilter]);
+  }, [activeIngredients, dietFilter]);
 
   // Filter and sort recipes. Wrapped defensively — a single malformed
   // recipe (missing title/ingredients) should never be able to crash the
@@ -135,14 +149,14 @@ export function RecipeResultsPage() {
         {/* Active Board Quick Chip Summary */}
         <div className="bg-[#FDFBF8] p-4 rounded-2xl hairline-border border-[#E7DCD1] shadow-xs flex items-center gap-3">
           <div className="flex flex-wrap gap-1.5 max-w-sm">
-            {ingredients.slice(0, 4).map((ing) => (
+            {activeIngredients.slice(0, 4).map((ing) => (
               <Badge key={ing} variant="soft" className="text-[11px] py-0.5 px-2">
                 {ing}
               </Badge>
             ))}
-            {ingredients.length > 4 && (
+            {activeIngredients.length > 4 && (
               <Badge variant="soft" className="text-[11px] py-0.5 px-2">
-                +{ingredients.length - 4} more
+                +{activeIngredients.length - 4} more
               </Badge>
             )}
           </div>

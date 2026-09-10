@@ -1,181 +1,3 @@
-// import React, { useState } from 'react';
-// import { useNavigate } from 'react-router-dom';
-// import { motion, AnimatePresence } from 'framer-motion';
-// import { Camera, Sparkles, Wand2, Plus, ArrowRight, ArrowLeft } from 'lucide-react';
-// import { SectionEyebrow } from '../components/ui/SectionEyebrow';
-// import { PhotoDropzone } from '../components/cook/PhotoDropzone';
-// import { detectIngredients } from '../api/visionApi';
-// import { IngredientChip } from '../components/ui/IngredientChip';
-// import { Button } from '../components/ui/Button';
-// import { usePantry } from '../context/PantryContext';
-// import { useToast } from '../context/ToastContext';
-// import { Skeleton } from '../components/ui/Skeleton';
-
-// export function PhotoUploadPage() {
-//   const [step, setStep] = useState('upload'); // 'upload' | 'detecting' | 'review'
-//   const [detectedChips, setDetectedChips] = useState([]);
-//   const [manualInput, setManualInput] = useState('');
-//   const { ingredients, setIngredients } = usePantry();
-//   const { addToast } = useToast();
-//   const navigate = useNavigate();
-
-//   const handleUploadComplete = async ({ url }) => {
-//     setStep('detecting');
-//     try {
-//       const response = await detectIngredients(url);
-//       if (response && response.ingredients) {
-//         setDetectedChips(response.ingredients);
-//         setStep('review');
-//         addToast(`Detected ${response.ingredients.length} items from your photo!`, 'success');
-//       }
-//     } catch (err) {
-//       console.error(err);
-//       addToast('Detection failed. Please add ingredients manually.', 'error');
-//       setStep('upload');
-//     }
-//   };
-
-//   const handleRemoveChip = (name) => {
-//     setDetectedChips((prev) => prev.filter((item) => item.toLowerCase() !== name.toLowerCase()));
-//   };
-
-//   const handleAddChip = (e) => {
-//     if (e) e.preventDefault();
-//     if (!manualInput.trim()) return;
-//     const name = manualInput.trim();
-//     if (!detectedChips.some((i) => i.toLowerCase() === name.toLowerCase())) {
-//       setDetectedChips((prev) => [...prev, name]);
-//       setManualInput('');
-//     }
-//   };
-
-//   const handleGenerate = () => {
-//     const merged = Array.from(new Set([...ingredients, ...detectedChips]));
-//     setIngredients(merged);
-//     addToast('Ingredients saved to cutting board!', 'success');
-//     navigate('/cook/results');
-//   };
-
-//   return (
-//     <motion.div
-//       initial={{ opacity: 0, y: 15 }}
-//       animate={{ opacity: 1, y: 0 }}
-//       exit={{ opacity: 0 }}
-//       className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8"
-//     >
-//       {/* Navigation Back */}
-//       <div className="flex items-center justify-between">
-//         <button
-//           type="button"
-//           onClick={() => navigate('/cook')}
-//           className="inline-flex items-center gap-2 text-sm font-semibold text-[#6B6259] hover:text-[#2B2622] transition-colors"
-//         >
-//           <ArrowLeft className="w-4 h-4" /> Back to Cutting Board
-//         </button>
-//       </div>
-
-//       <div className="bg-[#FDFBF8] p-8 sm:p-12 rounded-3xl hairline-border border-[#E7DCD1] shadow-xs space-y-8">
-//         <div className="text-center max-w-xl mx-auto space-y-3">
-//           <SectionEyebrow icon={Camera} className="justify-center">
-//             SMART FRIDGE PHOTO AI
-//           </SectionEyebrow>
-//           <h1 className="text-3xl sm:text-4xl font-serif text-[#2B2622] font-normal">
-//             Upload your <span className="serif-italic text-[#E2673F]">fridge photo</span>
-//           </h1>
-//           <p className="text-sm text-[#6B6259]">
-//             Drag & drop or snap a picture of your open fridge, freezer, or pantry shelf. Gemini Vision AI will automatically detect ingredients.
-//           </p>
-//         </div>
-
-//         {step === 'upload' && (
-//           <PhotoDropzone onUploadComplete={handleUploadComplete} />
-//         )}
-
-//         {step === 'detecting' && (
-//           <div className="py-12 text-center space-y-6">
-//             <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-//               <div className="absolute inset-0 rounded-full bg-[#E2673F]/20 animate-ping" />
-//               <div className="relative w-12 h-12 rounded-full bg-[#E2673F] text-white flex items-center justify-center shadow-lg">
-//                 <Wand2 className="w-6 h-6 animate-spin" />
-//               </div>
-//             </div>
-//             <div>
-//               <h3 className="text-xl font-serif text-[#2B2622]">
-//                 Extracting ingredients with Gemini Vision...
-//               </h3>
-//               <p className="text-sm text-[#6B6259] mt-1">
-//                 Scanning produce, proteins, condiments, and dairy items.
-//               </p>
-//             </div>
-//             <div className="flex flex-wrap justify-center gap-2 max-w-md mx-auto pt-2">
-//               <Skeleton className="h-8 w-24 rounded-full" />
-//               <Skeleton className="h-8 w-32 rounded-full" />
-//               <Skeleton className="h-8 w-20 rounded-full" />
-//             </div>
-//           </div>
-//         )}
-
-//         {step === 'review' && (
-//           <div className="space-y-6 pt-4 border-t border-[#E7DCD1]">
-//             <div className="p-4 rounded-2xl bg-amber-50/70 hairline-border border-amber-200/60 flex items-center justify-between">
-//               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-amber-900">
-//                 <Sparkles className="w-4 h-4 text-[#E2673F]" />
-//                 <span>Detected {detectedChips.length} Ingredients</span>
-//               </div>
-//               <button
-//                 type="button"
-//                 onClick={() => setStep('upload')}
-//                 className="text-xs text-[#E2673F] font-semibold hover:underline"
-//               >
-//                 Upload different photo
-//               </button>
-//             </div>
-
-//             <div className="flex flex-wrap gap-2.5 min-h-[100px]">
-//               <AnimatePresence>
-//                 {detectedChips.map((chip) => (
-//                   <IngredientChip
-//                     key={chip}
-//                     name={chip}
-//                     isDetected
-//                     onRemove={handleRemoveChip}
-//                   />
-//                 ))}
-//               </AnimatePresence>
-//             </div>
-
-//             <form onSubmit={handleAddChip} className="flex gap-2">
-//               <input
-//                 type="text"
-//                 value={manualInput}
-//                 onChange={(e) => setManualInput(e.target.value)}
-//                 placeholder="Missed an item? Add manually..."
-//                 className="flex-1 px-4 py-2.5 rounded-full bg-white text-sm hairline-border border-[#E7DCD1] focus:outline-none focus:ring-2 focus:ring-[#E2673F]"
-//               />
-//               <Button type="submit" variant="secondary" size="sm" icon={Plus}>
-//                 Add
-//               </Button>
-//             </form>
-
-//             <div className="pt-4 border-t border-[#E7DCD1] flex justify-end">
-//               <Button
-//                 variant="primary"
-//                 size="lg"
-//                 icon={ArrowRight}
-//                 onClick={handleGenerate}
-//               >
-//                 Looks good — Generate recipes
-//               </Button>
-//             </div>
-//           </div>
-//         )}
-//       </div>
-//     </motion.div>
-//   );
-// }
-
-
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -436,15 +258,17 @@ export function PhotoUploadPage() {
    * ---------------------------------------------------------
    * Generate recipes
    *
-   * Merge:
+   * Recipes for THIS scan are generated from only what was just
+   * detected in the photo (plus anything manually added on this
+   * screen) — never diluted by whatever has accumulated in the
+   * pantry from past sessions. `scanIngredients` is passed via
+   * router state so RecipeResultsPage can use it instead of the
+   * full pantry for this one fetch.
    *
-   * Existing pantry ingredients
-   * +
-   * Gemini detected ingredients
-   * +
-   * Manually added ingredients
-   *
-   * Then navigate to recipe results.
+   * We still save the detected items into the persistent pantry
+   * ("cutting board") separately, so they're there next time the
+   * user browses/edits their full pantry — that's just no longer
+   * what drives this scan's results.
    * ---------------------------------------------------------
    */
   const handleGenerate = () => {
@@ -465,7 +289,11 @@ export function PhotoUploadPage() {
     );
 
     console.log(
-      '[PhotoUploadPage] Final ingredients:',
+      '[PhotoUploadPage] Scan ingredients (used for these results):',
+      detectedChips
+    );
+    console.log(
+      '[PhotoUploadPage] Full pantry after saving scan (not used for results):',
       merged
     );
 
@@ -476,7 +304,9 @@ export function PhotoUploadPage() {
       'success'
     );
 
-    navigate('/cook/results');
+    navigate('/cook/results', {
+      state: { scanIngredients: detectedChips },
+    });
   };
 
   /*

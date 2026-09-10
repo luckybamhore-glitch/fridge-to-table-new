@@ -187,7 +187,11 @@ export async function generateRecipesController(req, res, next) {
         return {
           ...ingredient,
           name: ingredient.name,
-          have: hasMatch || Boolean(ingredient.have),
+          // Only trust the real overlap we just computed — never OR it
+          // with the seed data's placeholder `have` flag, or every
+          // recipe silently inherits a fake 100% match regardless of
+          // what the user actually has.
+          have: hasMatch,
         };
       });
 
