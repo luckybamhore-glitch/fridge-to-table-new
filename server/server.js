@@ -1,8 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
-import { connectDB } from './config/db.js';
+import { connectDB, isMongoConnected } from './config/db.js';
 import { seedInitialRecipes } from './services/seedService.js';
 import visionRoutes from './routes/visionRoutes.js';
 import recipeRoutes from './routes/recipeRoutes.js';
@@ -11,11 +11,13 @@ import pantryRoutes from './routes/pantryRoutes.js';
 import favoritesRoutes from './routes/favoritesRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
-// Load environment variables
-dotenv.config();
+// Environment variables loaded via import 'dotenv/config' above
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.disable('x-powered-by');
 
 // Allowed frontend origins for cross-origin cookie auth (refresh token cookie).
 // CLIENT_ORIGIN can be a single origin or a comma-separated list.
@@ -45,6 +47,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'Fridge to Table Backend Service',
+    databaseConnected: isMongoConnected,
     timestamp: new Date().toISOString(),
   });
 });

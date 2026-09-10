@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Sparkles, SlidersHorizontal, ArrowLeft, RefreshCw, Search, Utensils } from 'lucide-react';
+import { Sparkles, SlidersHorizontal, ArrowLeft, RefreshCw, Search } from 'lucide-react';
 import { SectionEyebrow } from '../components/ui/SectionEyebrow';
 import { RecipeGrid } from '../components/recipe/RecipeGrid';
+import { RecipeGeneratingLoadingScreen } from '../components/recipe/RecipeGeneratingLoadingScreen';
+import { RecipeGeneratedStateBanner } from '../components/recipe/RecipeGeneratedStateBanner';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { IngredientChip } from '../components/ui/IngredientChip';
 import { DIET_OPTIONS, usePantry } from '../context/PantryContext';
 import { generateRecipes } from '../api/recipeApi';
 import { useToast } from '../context/ToastContext';
@@ -14,111 +15,166 @@ import { useToast } from '../context/ToastContext';
 export function RecipeResultsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { ingredients, dietFilter, setDietFilter, activeResults, setActiveResults } = usePantry();
+  const {
+    ingredients,
+    dietFilter,
+    setDietFilter,
+    activeResults,
+    setActiveResults,
+    generationState,
+    setGenerationState,
+    generationMeta,
+    setGenerationMeta,
+    saveGenerationToHistory,
+  } = usePantry();
   const { addToast } = useToast();
 
-  // A photo scan navigates here with `scanIngredients` in router state —
-  // just what was detected in that photo, not the whole pantry. When
-  // present, it takes priority so a fresh scan's results reflect only
-  // that photo instead of being diluted by everything else saved in the
-  // pantry from past sessions. Any other entry point (editing the full
-  // cutting board, refreshing, a diet filter change) has no router state
-  // and falls back to the full pantry as before.
-  const scanIngredients = location.state?.scanIngredients;
-  const activeIngredients =
-    Array.isArray(scanIngredients) && scanIngredients.length > 0
-      ? scanIngredients
-      : ingredients;
+  const scanIngredients = location.state?.scanIngredients || (location.state?.aiGenerated ? location.state?.ingredients : null);
+  const activeIngredients = useMemo(
+    () => (Array.isArray(scanIngredients) && scanIngredients.length > 0 ? scanIngredients : ingredients),
+    [scanIngredients, ingredients]
+  );
 
   const [recipes, setRecipes] = useState(activeResults || []);
-  const [isLoading, setIsLoading] = useState(!activeResults);
-  const [sortBy, setSortBy] = useState('match'); // 'match' | 'time'
+  const [isLoading, setIsLoading] = useState(!activeResults || activeResults.length === 0);
+  const [sortBy, setSortBy] = useState('match');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Tracks which ingredients + diet the current `activeResults` cache was
-  // generated for. If the pantry changes (e.g. a fresh photo scan) after
-  // a previous visit already cached results, this lets us tell the cache
-  // is stale and re-fetch — instead of silently showing old recipes for
-  // a completely different set of ingredients.
-  const lastFetchedSignatureRef = useRef(null);
+  const buildSignature = useCallback(
+    (ingredientList, diet) =>
+      `${diet}::${[...(ingredientList || [])].map((i) => String(i).toLowerCase()).sort().join('|')}`,
+    []
+  );
 
-  const buildSignature = (ingredientList, diet) =>
-    `${diet}::${[...ingredientList].map((i) => i.toLowerCase()).sort().join('|')}`;
+  const lastFetchedSignatureRef = useRef(
+    generationMeta?.ingredients && generationMeta.ingredients.length > 0
+      ? buildSignature(generationMeta.ingredients, generationMeta.diet || 'All')
+      : null
+  );
 
-  const fetchResults = async (dietOverride) => {
-    if (activeIngredients.length === 0) {
-      navigate('/cook');
-      return;
+  // Sync recipes state with context's activeResults when updated
+  useEffect(() => {
+    if (Array.isArray(activeResults) && activeResults.length > 0) {
+      setRecipes(activeResults);
     }
+  }, [activeResults]);
 
-    const dietToUse = dietOverride ?? dietFilter;
+  const metaSignature = useMemo(() => {
+    if (!generationMeta?.ingredients || generationMeta.ingredients.length === 0) return null;
+    return buildSignature(generationMeta.ingredients, generationMeta.diet || 'All');
+  }, [generationMeta, buildSignature]);
 
-    setIsLoading(true);
-    try {
-      const response = await generateRecipes({
-        ingredients: activeIngredients,
-        diet: dietToUse,
-      });
-
-      setIsLoading(false);
-
-      if (response && Array.isArray(response.recipes)) {
-        lastFetchedSignatureRef.current = buildSignature(activeIngredients, dietToUse);
-        setRecipes(response.recipes);
-        setActiveResults(response.recipes);
-      } else {
-        setRecipes([]);
-        setActiveResults([]);
+  const fetchResults = useCallback(
+    async (dietOverride) => {
+      if (activeIngredients.length === 0) {
+        navigate('/cook');
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      setIsLoading(false);
-      addToast('Error fetching recipes. Please try again.', 'error');
-    }
-  };
+
+      const dietToUse = dietOverride ?? dietFilter;
+
+      setIsLoading(true);
+      setGenerationState('generating');
+      try {
+        const response = await generateRecipes({
+          ingredients: activeIngredients,
+          diet: dietToUse,
+        });
+
+        setIsLoading(false);
+
+        if (response && Array.isArray(response.recipes)) {
+          const newSignature = buildSignature(activeIngredients, dietToUse);
+          lastFetchedSignatureRef.current = newSignature;
+          setRecipes(response.recipes);
+          setActiveResults(response.recipes);
+          setGenerationState('generated');
+          setGenerationMeta({
+            count: response.recipes.length,
+            diet: dietToUse,
+            ingredients: activeIngredients,
+            generatedAt: new Date().toISOString(),
+          });
+          saveGenerationToHistory({
+            ingredients: activeIngredients,
+            diet: dietToUse,
+            recipes: response.recipes,
+          });
+        } else {
+          setRecipes([]);
+          setActiveResults([]);
+          setGenerationState('idle');
+        }
+      } catch (err) {
+        console.error(err);
+        setIsLoading(false);
+        setGenerationState('error');
+        addToast('Error fetching recipes. Please try again.', 'error');
+      }
+    },
+    [
+      activeIngredients,
+      dietFilter,
+      navigate,
+      setGenerationState,
+      setGenerationMeta,
+      setActiveResults,
+      saveGenerationToHistory,
+      buildSignature,
+      addToast,
+    ]
+  );
 
   useEffect(() => {
     const currentSignature = buildSignature(activeIngredients, dietFilter);
-    const cacheIsFresh =
-      activeResults && activeResults.length > 0 && lastFetchedSignatureRef.current === currentSignature;
+    const hasCachedResults =
+      Array.isArray(activeResults) &&
+      activeResults.length > 0 &&
+      generationState === 'generated' &&
+      (metaSignature === currentSignature || lastFetchedSignatureRef.current === currentSignature);
 
-    if (!cacheIsFresh) {
-      fetchResults();
+    if (hasCachedResults) {
+      lastFetchedSignatureRef.current = currentSignature;
+      setIsLoading(false);
+      return;
     }
-    // Only re-run when the actual ingredients/diet change, not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIngredients, dietFilter]);
 
-  // Filter and sort recipes. Wrapped defensively — a single malformed
-  // recipe (missing title/ingredients) should never be able to crash the
-  // whole page with no error boundary to catch it.
-  let filteredRecipes = [];
-  try {
-    filteredRecipes = recipes
-      .filter((recipe) => {
-        if (!recipe) return false;
+    fetchResults();
+  }, [activeIngredients, dietFilter, activeResults, generationState, metaSignature, buildSignature, fetchResults]);
 
-        if (searchQuery.trim()) {
-          const query = searchQuery.toLowerCase();
-          const title = recipe.title || '';
+  const filteredRecipes = useMemo(() => {
+    try {
+      const query = searchQuery.trim().toLowerCase();
+      return recipes
+        .filter((recipe) => {
+          if (!recipe) return false;
+          if (!query) return true;
+
+          const titleMatch = (recipe.title || '').toLowerCase().includes(query);
           const recipeIngredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
-
-          const titleMatch = title.toLowerCase().includes(query);
           const ingredientMatch = recipeIngredients.some((i) =>
             String(i?.name || '').toLowerCase().includes(query)
           );
           return titleMatch || ingredientMatch;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === 'match') return (b?.matchPercent || 0) - (a?.matchPercent || 0);
-        if (sortBy === 'time') return (a?.timeMinutes || 0) - (b?.timeMinutes || 0);
-        return 0;
-      });
-  } catch (err) {
-    console.error('[RecipeResultsPage] Failed to filter/sort recipes:', err);
-    filteredRecipes = [];
+        })
+        .sort((a, b) => {
+          if (sortBy === 'match') return (b?.matchPercent || 0) - (a?.matchPercent || 0);
+          if (sortBy === 'time') return (a?.timeMinutes || 0) - (b?.timeMinutes || 0);
+          return 0;
+        });
+    } catch (err) {
+      console.error('[RecipeResultsPage] Failed to filter/sort recipes:', err);
+      return [];
+    }
+  }, [recipes, searchQuery, sortBy]);
+
+  if (isLoading || generationState === 'generating') {
+    return (
+      <RecipeGeneratingLoadingScreen
+        ingredients={activeIngredients}
+        diet={dietFilter}
+      />
+    );
   }
 
   return (
@@ -165,6 +221,18 @@ export function RecipeResultsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Generated Recipe State Banner */}
+      {generationState === 'generated' && (
+        <RecipeGeneratedStateBanner
+          recipeCount={recipes.length}
+          ingredients={activeIngredients}
+          diet={dietFilter}
+          generatedAt={generationMeta?.generatedAt}
+          onRegenerate={() => fetchResults()}
+          onEditIngredients={() => navigate('/cook')}
+        />
+      )}
 
       {/* Filters & Search Control Bar */}
       <div className="bg-[#FDFBF8] p-4 sm:p-5 rounded-2xl hairline-border border-[#E7DCD1] flex flex-col md:flex-row items-center justify-between gap-4">

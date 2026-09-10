@@ -370,11 +370,12 @@ export function PhotoDropzone({ onUploadComplete, className }) {
         error
       );
 
-      setErrorMsg(
+      const message =
+        error?.response?.data?.message ||
         error?.message ||
-          'Image upload failed. Please try again.'
-      );
+        'Image upload failed. Please try again.';
 
+      setErrorMsg(message);
       setIsUploading(false);
     }
   };

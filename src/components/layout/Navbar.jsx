@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { UtensilsCrossed, Sparkles, Camera, Menu, X, User, LogOut, ChevronDown } from 'lucide-react';
+import { UtensilsCrossed, Sparkles, Camera, Menu, X, User, LogOut, ChevronDown, Heart } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { usePantry } from '../../context/PantryContext';
 import { useAuth } from '../../context/AuthContext';
@@ -14,7 +14,7 @@ export function Navbar() {
   const userMenuRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const { ingredients } = usePantry();
+  const { ingredients, savedRecipeIds } = usePantry();
   const { user, isAuthenticated, openAuthModal, logout } = useAuth();
   const { addToast } = useToast();
 
@@ -51,6 +51,7 @@ export function Navbar() {
     { name: 'Home', path: '/' },
     { name: 'The Cutting Board', path: '/cook' },
     { name: 'Snap Fridge', path: '/cook/photo' },
+    { name: 'Saved Recipes', path: '/saved', count: savedRecipeIds.length },
   ];
 
   return (
@@ -83,13 +84,18 @@ export function Navbar() {
                   key={link.path}
                   to={link.path}
                   className={cn(
-                    'text-sm font-medium transition-colors relative py-1',
+                    'text-sm font-medium transition-colors relative py-1 flex items-center gap-1.5',
                     isActive
                       ? 'text-[#E2673F] font-semibold'
                       : 'text-[#6B6259] hover:text-[#2B2622]'
                   )}
                 >
                   {link.name}
+                  {typeof link.count === 'number' && link.count > 0 && (
+                    <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-[#E2673F] text-white">
+                      {link.count}
+                    </span>
+                  )}
                   {isActive && (
                     <span className="absolute bottom-0 left-0 w-full h-0.5 bg-[#E2673F] rounded-full" />
                   )}
@@ -118,6 +124,14 @@ export function Navbar() {
                       <p className="text-sm font-medium text-[#2B2622] truncate">{user?.name}</p>
                       <p className="text-xs text-[#8E847A] truncate">{user?.email}</p>
                     </div>
+                    <Link
+                      to="/saved"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#2B2622] hover:bg-orange-50 transition-colors border-b border-[#E7DCD1]/60"
+                    >
+                      <Heart className="w-4 h-4 text-[#E2673F]" />
+                      Saved Recipes ({savedRecipeIds.length})
+                    </Link>
                     <button
                       onClick={handleLogout}
                       className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#2B2622] hover:bg-orange-50 transition-colors"

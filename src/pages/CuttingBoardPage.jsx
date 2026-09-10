@@ -25,35 +25,20 @@ export function CuttingBoardPage() {
     setDietFilter,
     duplicateShakeItem,
     setActiveResults,
+    setGenerationState,
   } = usePantry();
 
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
     if (ingredients.length === 0) {
       addToast('Please add at least one ingredient to your board!', 'info');
       return;
     }
 
-    setIsGenerating(true);
-    try {
-      const response = await generateRecipes({
-        ingredients,
-        diet: dietFilter,
-      });
-
-      setIsGenerating(false);
-      if (response && response.recipes) {
-        setActiveResults(response.recipes);
-        addToast(`Found ${response.recipes.length} recipes matched to your pantry!`, 'success');
-        navigate('/cook/results');
-      }
-    } catch (err) {
-      console.error('Generation error:', err);
-      setIsGenerating(false);
-      addToast('Failed to generate recipes. Please try again.', 'error');
-    }
+    setGenerationState('generating');
+    navigate('/cook/results');
   };
 
   return (

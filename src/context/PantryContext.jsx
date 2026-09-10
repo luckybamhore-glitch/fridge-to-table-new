@@ -68,9 +68,36 @@ export function PantryProvider({ children }) {
     }
   });
 
+  // Full recipe objects indexed by identifier for offline & persistent access
+  const [savedRecipesMap, setSavedRecipesMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ftt_saved_recipes_map');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // History of past AI recipe generations
+  const [recipeHistory, setRecipeHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ftt_recipe_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [uploadedPhotoUrl, setUploadedPhotoUrl] = useState(null);
   const [duplicateShakeItem, setDuplicateShakeItem] = useState(null);
   const [activeResults, setActiveResults] = useState(null);
+  const [generationState, setGenerationState] = useState('idle'); // 'idle' | 'generating' | 'generated' | 'error'
+  const [generationMeta, setGenerationMeta] = useState({
+    count: 0,
+    diet: 'All',
+    ingredients: [],
+    generatedAt: null,
+  });
 
   // Tracks whether we've reconciled local vs. server state for the current
   // login session, so we only do the merge-and-push-back once per login —
@@ -94,6 +121,22 @@ export function PantryProvider({ children }) {
       console.error(e);
     }
   }, [savedRecipeIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ftt_saved_recipes_map', JSON.stringify(savedRecipesMap));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [savedRecipesMap]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ftt_recipe_history', JSON.stringify(recipeHistory));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [recipeHistory]);
 
   // On login (or on silent session restore), reconcile local + server state:
   // anything the user added anonymously before logging in gets merged into
@@ -199,10 +242,20 @@ export function PantryProvider({ children }) {
     }
   }, [isAuthenticated]);
 
-  const toggleSavedRecipe = useCallback((id) => {
-    setSavedRecipeIds((prev) =>
-      prev.includes(id) ? prev.filter((rId) => rId !== id) : [...prev, id]
-    );
+  const toggleSavedRecipe = useCallback((id, recipeObj = null) => {
+    setSavedRecipeIds((prev) => {
+      const isSaving = !prev.includes(id);
+      if (isSaving && recipeObj) {
+        setSavedRecipesMap((mapPrev) => ({ ...mapPrev, [id]: recipeObj }));
+      } else if (!isSaving) {
+        setSavedRecipesMap((mapPrev) => {
+          const updated = { ...mapPrev };
+          delete updated[id];
+          return updated;
+        });
+      }
+      return isSaving ? [...prev, id] : prev.filter((rId) => rId !== id);
+    });
 
     if (isAuthenticated) {
       toggleFavoriteApi(id).catch((err) =>
@@ -211,25 +264,84 @@ export function PantryProvider({ children }) {
     }
   }, [isAuthenticated]);
 
+  const saveGenerationToHistory = useCallback(({ ingredients: ingList, diet, recipes }) => {
+    if (!Array.isArray(recipes) || recipes.length === 0) return;
+    const newSession = {
+      id: `history-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      ingredients: Array.isArray(ingList) ? ingList : [],
+      diet: diet || 'All',
+      recipes,
+    };
+
+    setRecipeHistory((prev) => {
+      const filtered = prev.filter(
+        (session) =>
+          JSON.stringify(session.ingredients.sort()) !== JSON.stringify([...newSession.ingredients].sort()) ||
+          session.diet !== newSession.diet
+      );
+      return [newSession, ...filtered].slice(0, 20); // keep 20 latest sessions
+    });
+  }, []);
+
+  const clearRecipeHistory = useCallback(() => {
+    setRecipeHistory([]);
+  }, []);
+
+  const deleteHistorySession = useCallback((sessionId) => {
+    setRecipeHistory((prev) => prev.filter((s) => s.id !== sessionId));
+  }, []);
+
+  const contextValue = React.useMemo(
+    () => ({
+      ingredients,
+      addIngredient,
+      removeIngredient,
+      clearIngredients,
+      setIngredients,
+      dietFilter,
+      setDietFilter,
+      savedRecipeIds,
+      savedRecipesMap,
+      toggleSavedRecipe,
+      recipeHistory,
+      saveGenerationToHistory,
+      clearRecipeHistory,
+      deleteHistorySession,
+      uploadedPhotoUrl,
+      setUploadedPhotoUrl,
+      duplicateShakeItem,
+      activeResults,
+      setActiveResults,
+      generationState,
+      setGenerationState,
+      generationMeta,
+      setGenerationMeta,
+    }),
+    [
+      ingredients,
+      addIngredient,
+      removeIngredient,
+      clearIngredients,
+      setIngredients,
+      dietFilter,
+      savedRecipeIds,
+      savedRecipesMap,
+      toggleSavedRecipe,
+      recipeHistory,
+      saveGenerationToHistory,
+      clearRecipeHistory,
+      deleteHistorySession,
+      uploadedPhotoUrl,
+      duplicateShakeItem,
+      activeResults,
+      generationState,
+      generationMeta,
+    ]
+  );
+
   return (
-    <PantryContext.Provider
-      value={{
-        ingredients,
-        addIngredient,
-        removeIngredient,
-        clearIngredients,
-        setIngredients,
-        dietFilter,
-        setDietFilter,
-        savedRecipeIds,
-        toggleSavedRecipe,
-        uploadedPhotoUrl,
-        setUploadedPhotoUrl,
-        duplicateShakeItem,
-        activeResults,
-        setActiveResults,
-      }}
-    >
+    <PantryContext.Provider value={contextValue}>
       {children}
     </PantryContext.Provider>
   );

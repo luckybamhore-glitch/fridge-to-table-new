@@ -22,9 +22,7 @@ import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
 import { usePantry } from '../context/PantryContext';
 import { useToast } from '../context/ToastContext';
-
-const FALLBACK_COVER_IMAGE =
-  'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=60';
+import { getRecipeCoverImage } from '../lib/recipeImageHelper';
 
 export function RecipeDetailPage() {
   const { id } = useParams();
@@ -121,7 +119,7 @@ export function RecipeDetailPage() {
   };
 
   const handleFavoriteClick = () => {
-    toggleSavedRecipe(recipeIdentifier);
+    toggleSavedRecipe(recipeIdentifier, recipe);
     addToast(
       isSaved ? `Removed "${recipe.title}" from favorites` : `Saved "${recipe.title}" to favorites!`,
       isSaved ? 'info' : 'success'
@@ -166,12 +164,13 @@ export function RecipeDetailPage() {
       {/* Hero Cover Image Section */}
       <div className="relative rounded-3xl overflow-hidden shadow-2xl hairline-border border-[#E7DCD1] aspect-[16/9] sm:aspect-[21/9] bg-orange-100">
         <img
-          src={recipe.coverImageUrl || FALLBACK_COVER_IMAGE}
+          src={getRecipeCoverImage(recipe)}
           alt={recipe.title || 'Recipe'}
           className="w-full h-full object-cover"
           onError={(e) => {
-            if (e.currentTarget.src !== FALLBACK_COVER_IMAGE) {
-              e.currentTarget.src = FALLBACK_COVER_IMAGE;
+            const fallback = getRecipeCoverImage(recipe, 1);
+            if (e.currentTarget.src !== fallback) {
+              e.currentTarget.src = fallback;
             }
           }}
         />

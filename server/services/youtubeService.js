@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const YOUTUBE_SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
+const youtubeCache = new Map();
 
 /**
  * Finds a real, verified YouTube video for a recipe title.
@@ -27,6 +28,11 @@ export async function findRecipeVideoUrl(recipeTitle) {
     return '';
   }
 
+  const cacheKey = recipeTitle.trim().toLowerCase();
+  if (youtubeCache.has(cacheKey)) {
+    return youtubeCache.get(cacheKey);
+  }
+
   try {
     const response = await axios.get(YOUTUBE_SEARCH_URL, {
       params: {
@@ -45,10 +51,13 @@ export async function findRecipeVideoUrl(recipeTitle) {
 
     if (!videoId) {
       console.info(`[YouTube] No video found for "${recipeTitle}".`);
+      youtubeCache.set(cacheKey, '');
       return '';
     }
 
-    return `https://www.youtube.com/watch?v=${videoId}`;
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    youtubeCache.set(cacheKey, videoUrl);
+    return videoUrl;
   } catch (err) {
     console.error('[YouTube] Search failed:', err.response?.data?.error?.message || err.message);
     return '';

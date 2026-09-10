@@ -25,7 +25,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 export function PhotoUploadPage() {
   const navigate = useNavigate();
 
-  const { ingredients, setIngredients } = usePantry();
+  const { ingredients, setIngredients, setGenerationState } = usePantry();
   const { addToast } = useToast();
 
   const [step, setStep] = useState('upload');
@@ -298,6 +298,7 @@ export function PhotoUploadPage() {
     );
 
     setIngredients(merged);
+    setGenerationState('generating');
 
     addToast(
       'Ingredients saved! Generating recipes...',

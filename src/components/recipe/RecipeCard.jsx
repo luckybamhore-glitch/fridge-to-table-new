@@ -6,9 +6,7 @@ import { MatchBadge, Badge } from '../ui/Badge';
 import { usePantry } from '../../context/PantryContext';
 import { useToast } from '../../context/ToastContext';
 import { cn } from '../../lib/cn';
-
-const FALLBACK_COVER_IMAGE =
-  'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=60';
+import { getRecipeCoverImage } from '../../lib/recipeImageHelper';
 
 export function RecipeCard({ recipe, index = 0 }) {
   const navigate = useNavigate();
@@ -43,7 +41,7 @@ export function RecipeCard({ recipe, index = 0 }) {
 
   const handleFavoriteClick = (e) => {
     e.stopPropagation();
-    toggleSavedRecipe(recipeIdentifier);
+    toggleSavedRecipe(recipeIdentifier, recipe);
     addToast(
       isSaved ? `Removed "${recipe?.title || 'recipe'}" from saved recipes` : `Saved "${recipe?.title || 'recipe'}" to favorites!`,
       isSaved ? 'info' : 'success'
@@ -76,15 +74,14 @@ export function RecipeCard({ recipe, index = 0 }) {
       {/* Cover Image Container */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-orange-100">
         <img
-          src={recipe?.coverImageUrl || FALLBACK_COVER_IMAGE}
+          src={getRecipeCoverImage(recipe, index)}
           alt={recipe?.title || 'Recipe'}
           loading="lazy"
           className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
           onError={(e) => {
-            // If a Cloudinary/AI-supplied URL 404s, fall back instead of
-            // showing a broken image icon.
-            if (e.currentTarget.src !== FALLBACK_COVER_IMAGE) {
-              e.currentTarget.src = FALLBACK_COVER_IMAGE;
+            const fallback = getRecipeCoverImage(recipe, index + 1);
+            if (e.currentTarget.src !== fallback) {
+              e.currentTarget.src = fallback;
             }
           }}
         />

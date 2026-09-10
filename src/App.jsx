@@ -15,6 +15,7 @@ const CuttingBoardPage = lazy(() => import('./pages/CuttingBoardPage').then((m) 
 const PhotoUploadPage = lazy(() => import('./pages/PhotoUploadPage').then((m) => ({ default: m.PhotoUploadPage })));
 const RecipeResultsPage = lazy(() => import('./pages/RecipeResultsPage').then((m) => ({ default: m.RecipeResultsPage })));
 const RecipeDetailPage = lazy(() => import('./pages/RecipeDetailPage').then((m) => ({ default: m.RecipeDetailPage })));
+const SavedRecipesPage = lazy(() => import('./pages/SavedRecipesPage').then((m) => ({ default: m.SavedRecipesPage })));
 
 function PageFallback() {
   return (
@@ -41,6 +42,7 @@ function AnimatedRoutes() {
           <Route path="/cook/photo" element={<PhotoUploadPage />} />
           <Route path="/cook/results" element={<RecipeResultsPage />} />
           <Route path="/recipe/:id" element={<RecipeDetailPage />} />
+          <Route path="/saved" element={<SavedRecipesPage />} />
           <Route path="*" element={<LandingPage />} />
         </Routes>
       </Suspense>

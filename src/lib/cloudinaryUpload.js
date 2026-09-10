@@ -70,15 +70,61 @@
 import { axiosClient } from '../api/axiosClient';
 
 /**
- * Reads a File as a base64 data URI (e.g. "data:image/jpeg;base64,...").
+ * Resizes and compresses an image File using HTML Canvas.
+ * Reduces 10MB+ camera photos to ~300KB without losing food detection clarity,
+ * preventing payload bloat and Cloudinary timeout errors.
+ *
  * @param {File} file
- * @returns {Promise<string>}
+ * @param {number} [maxWidth=1400]
+ * @param {number} [maxHeight=1400]
+ * @param {number} [quality=0.8]
+ * @returns {Promise<string>} base64 data URI
  */
-function fileToBase64(file) {
+function compressImageFile(file, maxWidth = 1400, maxHeight = 1400, quality = 0.8) {
   return new Promise((resolve, reject) => {
+    // If file is already very small (< 400KB), read directly without canvas overhead
+    if (file.size < 400 * 1024) {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Could not read image file.'));
+      reader.readAsDataURL(file);
+      return;
+    }
+
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.onerror = () => reject(new Error('Could not read image file.'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Invalid image format.'));
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+
+        // Smooth image rendering
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.src = e.target.result;
+    };
     reader.readAsDataURL(file);
   });
 }
@@ -86,17 +132,6 @@ function fileToBase64(file) {
 /**
  * Uploads an image file to Cloudinary via the backend's signed upload
  * endpoint (POST /api/vision/upload).
- *
- * We deliberately do NOT upload directly to Cloudinary from the browser:
- * that requires an unsigned upload preset + exposing VITE_CLOUDINARY_*
- * env vars client-side. Routing through the backend lets us reuse the
- * CLOUDINARY_API_KEY/SECRET that are already configured server-side,
- * keeps the secret off the client, and lets us rate-limit uploads.
- *
- * On failure this throws — callers must handle the error. It never
- * silently falls back to a local blob: URL, since the backend (and
- * Gemini) can't do anything with a URL that only exists in this browser
- * tab.
  *
  * @param {File} file - Image file to upload
  * @param {Function} [onProgress] - Callback for upload percentage (0-100)
@@ -107,16 +142,14 @@ export async function uploadToCloudinary(file, onProgress) {
     throw new Error('No file provided.');
   }
 
-  const base64DataUri = await fileToBase64(file);
+  // Compress large photo client-side before sending over network
+  const base64DataUri = await compressImageFile(file);
 
-  // Base64 data URIs report as ~33% larger than the source file; the
-  // backend's JSON body limit (15mb) already accounts for this against
-  // the 10MB client-side file-size cap in PhotoDropzone.
   const response = await axiosClient.post(
     '/vision/upload',
     { image: base64DataUri },
     {
-      timeout: 30000, // uploads take longer than the client's 12s default
+      timeout: 60000, // 60s timeout for network uploads
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total && onProgress) {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
